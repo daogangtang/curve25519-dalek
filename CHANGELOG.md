@@ -2,6 +2,24 @@
 
 Entries are listed in reverse chronological order.
 
+## 1.2.1
+
+* Fix a bug in bucket index calculations in the Pippenger multiscalar algorithm
+  for very large input sizes.
+* Add a more extensive randomized multiscalar multiplication consistency check
+  to the test suite to prevent regressions.
+* Ensure that that multiscalar and NAF computations work correctly on extremal
+  `Scalar` values constructed via `from_bits`.
+
+## 1.2.0
+
+* New multiscalar multiplication algorithm with better performance for
+  large problem sizes.  The backend algorithm is selected
+  transparently using the size hints of the input iterators, so no
+  changes are required for client crates to start using it.
+* Equality of Edwards points is now checked in projective coordinates.
+* Serde can now be used with `no_std`.
+
 ## 1.1.4
 
 * Fix typos in documentation comments.

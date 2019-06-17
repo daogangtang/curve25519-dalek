@@ -394,7 +394,14 @@ impl ConditionallySelectable for EdwardsPoint {
 
 impl ConstantTimeEq for EdwardsPoint {
     fn ct_eq(&self, other: &EdwardsPoint) -> Choice {
-        self.compress().ct_eq(&other.compress())
+        // We would like to check that the point (X/Z, Y/Z) is equal to
+        // the point (X'/Z', Y'/Z') without converting into affine
+        // coordinates (x, y) and (x', y'), which requires two inversions.
+        // We have that X = xZ and X' = x'Z'. Thus, x = x' is equivalent to
+        // (xZ)Z' = (x'Z')Z, and similarly for the y-coordinate.
+
+        (&self.X * &other.Z).ct_eq(&(&other.X * &self.Z))
+            & (&self.Y * &other.Z).ct_eq(&(&other.Y * &self.Z))
     }
 }
 
@@ -669,11 +676,15 @@ impl VartimeMultiscalarMul for EdwardsPoint {
         assert_eq!(s_hi, Some(s_lo));
         assert_eq!(p_hi, Some(p_lo));
 
-        // Now we know there's a single size.  When we do
-        // size-dependent algorithm dispatch, use this as the hint.
-        let _size = s_lo;
+        // Now we know there's a single size.
+        // Use this as the hint to decide which algorithm to use.
+        let size = s_lo;
 
-        scalar_mul::straus::Straus::optional_multiscalar_mul(scalars, points)
+        if size < 190 {
+            scalar_mul::straus::Straus::optional_multiscalar_mul(scalars, points)
+        } else {
+            scalar_mul::pippenger::Pippenger::optional_multiscalar_mul(scalars, points)
+        }
     }
 }
 
@@ -1242,6 +1253,73 @@ mod test {
         let P2 = &s * &G;
 
         assert!(P1.compress().to_bytes() == P2.compress().to_bytes());
+    }
+
+    // A single iteration of a consistency check for MSM.
+    fn multiscalar_consistency_iter(n: usize) {
+        use core::iter;
+        let mut rng = rand::thread_rng();
+
+        // Construct random coefficients x0, ..., x_{n-1},
+        // followed by some extra hardcoded ones.
+        let xs = (0..n)
+            .map(|_| Scalar::random(&mut rng))
+            // The largest scalar allowed by the type system, 2^255-1
+            .chain(iter::once(Scalar::from_bits([0xff; 32])))
+            .collect::<Vec<_>>();
+        let check = xs.iter()
+            .map(|xi| xi * xi)
+            .sum::<Scalar>();
+
+        // Construct points G_i = x_i * B
+        let Gs = xs.iter()
+            .map(|xi| xi * &constants::ED25519_BASEPOINT_TABLE)
+            .collect::<Vec<_>>();
+
+        // Compute H1 = <xs, Gs> (consttime)
+        let H1 = EdwardsPoint::multiscalar_mul(&xs, &Gs);
+        // Compute H2 = <xs, Gs> (vartime)
+        let H2 = EdwardsPoint::vartime_multiscalar_mul(&xs, &Gs);
+        // Compute H3 = <xs, Gs> = sum(xi^2) * B
+        let H3 = &check * &constants::ED25519_BASEPOINT_TABLE;
+
+        assert_eq!(H1, H3);
+        assert_eq!(H2, H3);
+    }
+
+    // Use different multiscalar sizes to hit different internal
+    // parameters.
+
+    #[test]
+    fn multiscalar_consistency_n_100() {
+        let iters = 50;
+        for _ in 0..iters {
+            multiscalar_consistency_iter(100);
+        }
+    }
+
+    #[test]
+    fn multiscalar_consistency_n_250() {
+        let iters = 50;
+        for _ in 0..iters {
+            multiscalar_consistency_iter(250);
+        }
+    }
+
+    #[test]
+    fn multiscalar_consistency_n_500() {
+        let iters = 50;
+        for _ in 0..iters {
+            multiscalar_consistency_iter(500);
+        }
+    }
+
+    #[test]
+    fn multiscalar_consistency_n_1000() {
+        let iters = 50;
+        for _ in 0..iters {
+            multiscalar_consistency_iter(1000);
+        }
     }
 
     #[test]
