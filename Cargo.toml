@@ -83,3 +83,7 @@ avx2_backend = ["simd_backend"]
 # feature before the main-stage compilation.
 stage2_build = []
 
+[[bin]]
+name = "gen_table"
+path = "gen_table.rs"
+
